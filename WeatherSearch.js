@@ -1,7 +1,11 @@
   import React, { useState, useEffect } from 'react';
+  import axios from 'axios';
+  import { useAuth } from './AuthContext';
   import { Search, Wind, Eye, Droplets, Gauge, MapPin, Calendar, Clock, Sunrise, Sunset, Globe, CloudRain, Star, Heart, RefreshCw, TrendingUp, TrendingDown, Activity, Compass } from 'lucide-react';
 
   const WeatherSearch = () => {
+    const { token } = useAuth();
+    const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
     const [city, setCity] = useState('');
     const [weatherData, setWeatherData] = useState(null);
     const [forecastData, setForecastData] = useState(null);
@@ -30,7 +34,7 @@
         'berlin': 'DE', 'madrid': 'ES', 'rome': 'IT', 'amsterdam': 'NL', 'vienna': 'AT'
       };
       
-      const countryCodes = ['US','GB','CA','AU','DE','FR','IT','ES','JP','CN','IN','BR','RU','MX','NL','AT'];
+      const countryCodes = ['US','GB','CA','AU','DE','FR','IT','ES','JP','CN','IN','BR','RU','MX'];
       const country = countries[cityName.toLowerCase()] || countryCodes[Math.abs(cityHash) % countryCodes.length];
       const weatherIndex = Math.abs(cityHash) % weatherConditions.length;
       const baseTemp = 15 + (Math.abs(cityHash) % 20); // Temperature between 15-35°C
@@ -144,17 +148,17 @@
         setCurrentTime(null);
         return;
       }
-
       const updateTime = () => {
         const now = new Date();
         const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
         const localTime = new Date(utc + (weatherData.timezone * 1000));
         setCurrentTime(localTime);
       };
-      
       updateTime();
       const interval = setInterval(updateTime, 1000);
-      return () => clearInterval(interval);
+      return () => {
+        clearInterval(interval);
+      };
     }, [weatherData?.timezone]);
 
     // Load favorites from memory
@@ -212,15 +216,14 @@
       try {
         if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames !== 'undefined') {
           const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
-          const name = regionNames.of(countryCode.toUpperCase());
+          const name = regionNames.of((countryCode || '').toUpperCase());
           if (name) return name;
         }
       } catch (e) {}
       const countries = {
         'US': 'United States', 'GB': 'United Kingdom', 'CA': 'Canada', 'AU': 'Australia',
         'DE': 'Germany', 'FR': 'France', 'IT': 'Italy', 'ES': 'Spain', 'JP': 'Japan',
-        'CN': 'China', 'IN': 'India', 'BR': 'Brazil', 'RU': 'Russia', 'MX': 'Mexico',
-        'NL': 'Netherlands', 'AT': 'Austria'
+        'CN': 'China', 'IN': 'India', 'BR': 'Brazil', 'RU': 'Russia', 'MX': 'Mexico'
       };
       return countries[countryCode] || countryCode;
     };
@@ -259,6 +262,11 @@
         setForecastData(generateMockForecastData(searchCity));
         addToHistory(searchCity);
         setLoading(false);
+        if (token) {
+          axios.post(`${apiBase}/weather/current`, { city: searchCity }, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => {});
+        }
       }, 1000);
     };
 
@@ -281,17 +289,6 @@
       return gradients[weatherMain] || gradients.default;
     };
 
-    const getUVIndex = () => Math.floor(Math.random() * 11) + 1;
-    const getAirQuality = () => {
-      const qualities = [
-        { level: 'Good', gradient: 'from-green-400 to-green-600' },
-        { level: 'Moderate', gradient: 'from-yellow-400 to-yellow-600' },
-        { level: 'Unhealthy for Sensitive Groups', gradient: 'from-orange-400 to-orange-600' },
-        { level: 'Unhealthy', gradient: 'from-red-400 to-red-600' }
-      ];
-      return qualities[Math.floor(Math.random() * qualities.length)];
-    };
-
     const seededRandomInt = (seed, min, max) => {
       const normalized = String(seed).toLowerCase();
       let hash = 0;
@@ -302,7 +299,6 @@
       const x = Math.abs(Math.sin(hash) * 10000) % 1;
       return Math.floor(x * (max - min + 1)) + min;
     };
-
     useEffect(() => {
       if (!weatherData) {
         setUvIndex(null);
@@ -312,7 +308,6 @@
       const seed = weatherData.name || `${weatherData.coord?.lat},${weatherData.coord?.lon}`;
       const uv = seededRandomInt(`${seed}-uv`, 1, 11);
       setUvIndex(uv);
-
       const qualities = [
         { level: 'Good', gradient: 'from-green-400 to-green-600' },
         { level: 'Moderate', gradient: 'from-yellow-400 to-yellow-600' },

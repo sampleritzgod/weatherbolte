@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from './AuthContext';
 import { 
   Clock, 
   MapPin, 
@@ -29,59 +29,77 @@ const WeatherHistory = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('date'); // date, city, temperature
 
+  const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+
+  const fetchServerHistory = async (currentToken) => {
+    const response = await axios.get(`${apiBase}/weather/history`, {
+      headers: { Authorization: `Bearer ${currentToken}` }
+    });
+    return response.data || [];
+  };
+
+  const backfillFromLocalSearches = async (currentToken) => {
+    try {
+      const searches = JSON.parse(localStorage.getItem('weatherHistory') || '[]');
+      if (!Array.isArray(searches) || searches.length === 0) return [];
+
+      const uniqueCities = Array.from(new Set(searches)).slice(0, 5);
+      const results = [];
+
+      for (const city of uniqueCities) {
+        try {
+          const res = await axios.post(`${apiBase}/weather/current`, { city }, {
+            headers: { Authorization: `Bearer ${currentToken}` }
+          });
+          // Push a client-side representation while server saves
+          results.push({
+            city,
+            date: new Date().toISOString(),
+            weather: res.data
+          });
+        } catch (e) {
+          // Skip city on error
+        }
+      }
+      return results;
+    } catch (_) {
+      return [];
+    }
+  };
+
   useEffect(() => {
-    const fetchHistory = async () => {
+    const run = async () => {
+      if (!token) {
+        setLoading(false);
+        setError('Authentication required');
+        return;
+      }
+
+      setLoading(true);
+      setError('');
       try {
-        setLoading(true);
-        setError('');
-        
-        const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
-        const response = await axios.get(`${apiBase}/weather/history`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        setHistory(response.data);
-        setFilteredHistory(response.data);
+        let serverHistory = await fetchServerHistory(token);
+
+        // If server has no history yet, try to backfill from recent local searches
+        if (serverHistory.length === 0) {
+          await backfillFromLocalSearches(token);
+          // Re-fetch after backfill
+          serverHistory = await fetchServerHistory(token);
+        }
+
+        setHistory(serverHistory);
+        setFilteredHistory(serverHistory);
       } catch (err) {
         console.error('Failed to fetch history:', err);
         setError(err.response?.data?.message || 'Failed to fetch weather history');
-        
-        // Fallback to mock data for demonstration
-        const mockHistory = [
-          {
-            city: "London",
-            date: "2024-01-15T10:30:00Z",
-            weather: {
-              weather: [{ main: "Clear", description: "clear sky", icon: "01d" }],
-              main: { temp: 18, feels_like: 16, humidity: 65, pressure: 1013 },
-              wind: { speed: 3.5, deg: 240 },
-              visibility: 10000
-            }
-          },
-          {
-            city: "New York",
-            date: "2024-01-14T15:45:00Z",
-            weather: {
-              weather: [{ main: "Rain", description: "light rain", icon: "10d" }],
-              main: { temp: 12, feels_like: 10, humidity: 85, pressure: 1008 },
-              wind: { speed: 4.2, deg: 180 },
-              visibility: 8000
-            }
-          }
-        ];
-        setHistory(mockHistory);
-        setFilteredHistory(mockHistory);
+        setHistory([]);
+        setFilteredHistory([]);
       } finally {
         setLoading(false);
       }
     };
 
-    if (token) {
-      fetchHistory();
-    } else {
-      setLoading(false);
-      setError('Authentication required');
-    }
+    run();
   }, [token]);
 
   useEffect(() => {
@@ -95,7 +113,7 @@ const WeatherHistory = () => {
         case 'city':
           return a.city.localeCompare(b.city);
         case 'temperature':
-          return b.weather.main.temp - a.weather.main.temp;
+          return (b.weather?.main?.temp ?? 0) - (a.weather?.main?.temp ?? 0);
         case 'date':
         default:
           return new Date(b.date) - new Date(a.date);
@@ -178,7 +196,7 @@ const WeatherHistory = () => {
     const totalSearches = history.length;
     const uniqueCities = new Set(history.map(item => item.city)).size;
     const avgTemp = history.length > 0 
-      ? Math.round(history.reduce((sum, item) => sum + item.weather.main.temp, 0) / history.length)
+      ? Math.round(history.reduce((sum, item) => sum + (item.weather?.main?.temp ?? 0), 0) / history.length)
       : 0;
     
     return { totalSearches, uniqueCities, avgTemp };
@@ -370,7 +388,7 @@ const WeatherHistory = () => {
                       <div className="bg-gray-50 rounded-xl p-3 text-center">
                         <Eye className="w-5 h-5 text-gray-500 mx-auto mb-1" />
                         <p className="text-xs text-gray-600 mb-1">Visibility</p>
-                        <p className="font-bold text-gray-700">{(item.weather?.visibility / 1000).toFixed(1)} km</p>
+                        <p className="font-bold text-gray-700">{((item.weather?.visibility ?? 0) / 1000).toFixed(1)} km</p>
                       </div>
                     </div>
                   </div>

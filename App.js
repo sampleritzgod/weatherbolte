@@ -6,8 +6,8 @@ import Navbar from './components/Navbar';
 import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
-import WeatherSearch from './components/WeatherSearch';
-import WeatherHistory from './components/WeatherHistory';
+import WeatherSearch from './WeatherSearch';
+import WeatherHistory from './WeatherHistory';
 import Profile from './components/Profile';
 import { Box, CircularProgress } from '@mui/material';
 
