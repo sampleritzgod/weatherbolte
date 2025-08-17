@@ -12,6 +12,8 @@
     const [tempUnit, setTempUnit] = useState('C'); // C or F
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [searchHistory, setSearchHistory] = useState([]);
+    const [uvIndex, setUvIndex] = useState(null);
+    const [airQuality, setAirQuality] = useState(null);
 
     // Generate mock weather data based on city name
     const generateMockWeatherData = (cityName) => {
@@ -28,7 +30,8 @@
         'berlin': 'DE', 'madrid': 'ES', 'rome': 'IT', 'amsterdam': 'NL', 'vienna': 'AT'
       };
       
-      const country = countries[cityName.toLowerCase()] || 'US';
+      const countryCodes = ['US','GB','CA','AU','DE','FR','IT','ES','JP','CN','IN','BR','RU','MX','NL','AT'];
+      const country = countries[cityName.toLowerCase()] || countryCodes[Math.abs(cityHash) % countryCodes.length];
       const weatherIndex = Math.abs(cityHash) % weatherConditions.length;
       const baseTemp = 15 + (Math.abs(cityHash) % 20); // Temperature between 15-35°C
       
@@ -137,22 +140,21 @@
 
     // Update local time every second when weather data is available
     useEffect(() => {
-      let interval;
-      if (weatherData?.timezone) {
-        const updateTime = () => {
-          const now = new Date();
-          const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-          const localTime = new Date(utc + (weatherData.timezone * 1000));
-          setCurrentTime(localTime);
-        };
-        
-        updateTime();
-        interval = setInterval(updateTime, 1000);
+      if (typeof weatherData?.timezone !== 'number') {
+        setCurrentTime(null);
+        return;
       }
-      
-      return () => {
-        if (interval) clearInterval(interval);
+
+      const updateTime = () => {
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const localTime = new Date(utc + (weatherData.timezone * 1000));
+        setCurrentTime(localTime);
       };
+      
+      updateTime();
+      const interval = setInterval(updateTime, 1000);
+      return () => clearInterval(interval);
     }, [weatherData?.timezone]);
 
     // Load favorites from memory
@@ -206,10 +208,19 @@
     };
 
     const getCountryName = (countryCode) => {
+      if (!countryCode) return '';
+      try {
+        if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames !== 'undefined') {
+          const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+          const name = regionNames.of(countryCode.toUpperCase());
+          if (name) return name;
+        }
+      } catch (e) {}
       const countries = {
         'US': 'United States', 'GB': 'United Kingdom', 'CA': 'Canada', 'AU': 'Australia',
         'DE': 'Germany', 'FR': 'France', 'IT': 'Italy', 'ES': 'Spain', 'JP': 'Japan',
-        'CN': 'China', 'IN': 'India', 'BR': 'Brazil', 'RU': 'Russia', 'MX': 'Mexico'
+        'CN': 'China', 'IN': 'India', 'BR': 'Brazil', 'RU': 'Russia', 'MX': 'Mexico',
+        'NL': 'Netherlands', 'AT': 'Austria'
       };
       return countries[countryCode] || countryCode;
     };
@@ -265,7 +276,7 @@
         Snow: 'from-blue-200 via-cyan-300 to-teal-400',
         Thunderstorm: 'from-gray-800 via-purple-900 to-black',
         Drizzle: 'from-gray-500 via-blue-600 to-indigo-700',
-        default: 'from-gradient-to-br from-purple-600 via-pink-600 to-red-500'
+        default: 'from-purple-600 via-pink-600 to-red-500'
       };
       return gradients[weatherMain] || gradients.default;
     };
@@ -280,6 +291,37 @@
       ];
       return qualities[Math.floor(Math.random() * qualities.length)];
     };
+
+    const seededRandomInt = (seed, min, max) => {
+      const normalized = String(seed).toLowerCase();
+      let hash = 0;
+      for (let i = 0; i < normalized.length; i++) {
+        hash = ((hash << 5) - hash) + normalized.charCodeAt(i);
+        hash |= 0;
+      }
+      const x = Math.abs(Math.sin(hash) * 10000) % 1;
+      return Math.floor(x * (max - min + 1)) + min;
+    };
+
+    useEffect(() => {
+      if (!weatherData) {
+        setUvIndex(null);
+        setAirQuality(null);
+        return;
+      }
+      const seed = weatherData.name || `${weatherData.coord?.lat},${weatherData.coord?.lon}`;
+      const uv = seededRandomInt(`${seed}-uv`, 1, 11);
+      setUvIndex(uv);
+
+      const qualities = [
+        { level: 'Good', gradient: 'from-green-400 to-green-600' },
+        { level: 'Moderate', gradient: 'from-yellow-400 to-yellow-600' },
+        { level: 'Unhealthy for Sensitive Groups', gradient: 'from-orange-400 to-orange-600' },
+        { level: 'Unhealthy', gradient: 'from-red-400 to-red-600' }
+      ];
+      const idx = seededRandomInt(`${seed}-aq`, 0, qualities.length - 1);
+      setAirQuality(qualities[idx]);
+    }, [weatherData?.name, weatherData?.coord?.lat, weatherData?.coord?.lon]);
 
     const isFavorite = (cityName) => favorites.some(f => f.city === cityName);
 
@@ -539,7 +581,7 @@
                       24-Hour Forecast
                     </h3>
                     <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-hide">
-                      {forecastData.list.slice(0, 8).map((hour, index) => (
+                      {forecastData.list.slice(0, 24).map((hour, index) => (
                         <div 
                           key={hour.dt} 
                           className="flex-shrink-0 bg-white/10 backdrop-blur-sm rounded-2xl p-4 text-center min-w-[110px] shadow-lg hover:shadow-xl hover:bg-white/20 transform hover:scale-105 transition-all duration-300 border border-white/10"
@@ -673,7 +715,7 @@
                     <WeatherDetailCard 
                       icon={<Activity className="w-6 h-6" />}
                       title="UV Index"
-                      value={`${getUVIndex()}/11`}
+                      value={uvIndex !== null ? `${uvIndex}/11` : '—'}
                       gradient="from-yellow-400 via-orange-500 to-red-500"
                       delay="600ms"
                     />
@@ -681,8 +723,8 @@
                     <WeatherDetailCard 
                       icon={<Compass className="w-6 h-6" />}
                       title="Air Quality"
-                      value={getAirQuality().level}
-                      gradient={getAirQuality().gradient}
+                      value={airQuality?.level || 'Good'}
+                      gradient={airQuality?.gradient || 'from-green-400 to-green-600'}
                       delay="700ms"
                     />
                   </div>
